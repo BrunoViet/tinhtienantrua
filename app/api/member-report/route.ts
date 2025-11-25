@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 import { LunchEntryWithMember } from '@/lib/types'
 
+export const dynamic = 'force-dynamic'
+
 // GET lunch entries for a specific member in date range
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
+    const searchParams = request.nextUrl.searchParams
     const memberId = searchParams.get('memberId')
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { format, parseISO } from 'date-fns'
-import { vi } from 'date-fns/locale/vi'
+import vi from 'date-fns/locale/vi'
 import { LunchEntryWithMember, DEFAULT_MEAL_PRICE } from './types'
 
 export interface ExcelReportData {

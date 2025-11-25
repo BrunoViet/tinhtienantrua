@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { format, startOfWeek, addDays, addWeeks, subWeeks, parseISO } from 'date-fns'
-import { vi } from 'date-fns/locale/vi'
+import vi from 'date-fns/locale/vi'
 import { ArrowLeft, ArrowRight, Plus, Edit, Trash2, Calculator } from 'lucide-react'
 import { LunchEntryWithMember, Member, WeeklyDebt, DEFAULT_MEAL_PRICE } from '@/lib/types'
 
