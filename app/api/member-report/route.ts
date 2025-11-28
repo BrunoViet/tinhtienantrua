@@ -20,6 +20,8 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createServerClient()
+    
+    // Fetch lunch entries
     const { data, error } = await supabase
       .from('lunch_entries')
       .select(`
@@ -38,21 +40,43 @@ export async function GET(request: NextRequest) {
       return NextResponse.json([])
     }
 
-    const entries: LunchEntryWithMember[] = data.map((entry: any) => ({
-      id: entry.id,
-      memberId: entry.member_id,
-      date: entry.date,
-      quantity: entry.quantity,
-      price: entry.price ?? null,
-      note: entry.note,
-      created_at: entry.created_at,
-      updated_at: entry.updated_at,
-      member: {
-        id: entry.member.id,
-        name: entry.member.name,
-        isActive: entry.member.is_active,
-      },
-    }))
+    // Fetch payments that might cover entries in this date range
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('payments')
+      .select('start_date, end_date')
+      .eq('member_id', memberId)
+      .lte('start_date', endDate)
+      .gte('end_date', startDate)
+
+    if (paymentsError) throw paymentsError
+
+    const payments = Array.isArray(paymentsData) ? paymentsData : []
+
+    const entries: (LunchEntryWithMember & { isPaid?: boolean })[] = data.map((entry: any) => {
+      // Check if this entry is paid
+      const isPaid = payments.some(
+        (payment: any) =>
+          payment.start_date <= entry.date &&
+          payment.end_date >= entry.date
+      )
+
+      return {
+        id: entry.id,
+        memberId: entry.member_id,
+        date: entry.date,
+        quantity: entry.quantity,
+        price: entry.price ?? null,
+        note: entry.note,
+        created_at: entry.created_at,
+        updated_at: entry.updated_at,
+        member: {
+          id: entry.member.id,
+          name: entry.member.name,
+          isActive: entry.member.is_active,
+        },
+        isPaid,
+      }
+    })
 
     return NextResponse.json(entries)
   } catch (error: any) {

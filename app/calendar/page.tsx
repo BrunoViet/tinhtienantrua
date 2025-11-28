@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { format, startOfWeek, addDays, addWeeks, subWeeks, parseISO } from 'date-fns'
 import vi from 'date-fns/locale/vi'
-import { ArrowLeft, ArrowRight, Plus, Edit, Trash2, Calculator } from 'lucide-react'
-import { LunchEntryWithMember, Member, WeeklyDebt, DEFAULT_MEAL_PRICE } from '@/lib/types'
+import { ArrowLeft, ArrowRight, Plus, Edit, Trash2, Calculator, CheckCircle2 } from 'lucide-react'
+import { LunchEntryWithMember, Member, WeeklyDebt, Payment, DEFAULT_MEAL_PRICE } from '@/lib/types'
+import { useNotifications } from '@/hooks/useNotifications'
 
 export default function CalendarPage() {
   const [currentWeek, setCurrentWeek] = useState(new Date())
@@ -28,13 +29,33 @@ export default function CalendarPage() {
     price: '',
     note: '',
   })
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [paidEntryIds, setPaidEntryIds] = useState<Set<string>>(new Set())
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [selectedMemberForPayment, setSelectedMemberForPayment] = useState<string>('')
+  const { addNotification, NotificationContainer } = useNotifications()
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 }) // Monday
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
   useEffect(() => {
     fetchData()
+    fetchPayments()
   }, [currentWeek])
+
+  useEffect(() => {
+    checkPaidEntries()
+  }, [entries, payments])
+
+  const sortEntries = (list: LunchEntryWithMember[]) =>
+    [...list].sort((a, b) => {
+      if (a.date === b.date) {
+        return a.member.name.localeCompare(b.member.name, 'vi', {
+          sensitivity: 'base',
+        })
+      }
+      return a.date.localeCompare(b.date)
+    })
 
   const fetchData = async () => {
     setLoading(true)
@@ -59,7 +80,7 @@ export default function CalendarPage() {
 
       // Đảm bảo data là array
       if (Array.isArray(entriesData)) {
-        setEntries(entriesData)
+        setEntries(sortEntries(entriesData))
       } else {
         console.error('Entries API returned non-array data:', entriesData)
         setEntries([])
@@ -78,6 +99,56 @@ export default function CalendarPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const fetchPayments = async () => {
+    try {
+      // Fetch all payments that might cover entries in the current week
+      const startDate = format(weekStart, 'yyyy-MM-dd')
+      const endDate = format(addDays(weekStart, 6), 'yyyy-MM-dd')
+
+      // Fetch payments that overlap with the current week
+      // We need to check payments where start_date <= endDate AND end_date >= startDate
+      const res = await fetch(`/api/payments`)
+      if (!res.ok) throw new Error('Failed to fetch payments')
+      const data = await res.json()
+      const allPayments = Array.isArray(data) ? data : []
+      
+      // Filter payments that overlap with current week
+      const relevantPayments = allPayments.filter((payment: Payment) => {
+        return payment.startDate <= endDate && payment.endDate >= startDate
+      })
+      
+      setPayments(relevantPayments)
+    } catch (error) {
+      console.error('Error fetching payments:', error)
+      setPayments([])
+    }
+  }
+
+  const checkPaidEntries = async () => {
+    if (entries.length === 0) {
+      setPaidEntryIds(new Set())
+      return
+    }
+
+    const paidIds = new Set<string>()
+    
+    for (const entry of entries) {
+      // Check if there's a payment that covers this entry's date
+      const isPaid = payments.some(
+        (payment) =>
+          payment.memberId === entry.memberId &&
+          payment.startDate <= entry.date &&
+          payment.endDate >= entry.date
+      )
+      
+      if (isPaid) {
+        paidIds.add(entry.id)
+      }
+    }
+
+    setPaidEntryIds(paidIds)
   }
 
   const handleDateClick = (date: Date) => {
@@ -108,8 +179,9 @@ export default function CalendarPage() {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error('Failed to delete entry')
-      fetchData()
+      setEntries((prev) => prev.filter((entry) => entry.id !== id))
       if (showSidebar) setShowSidebar(false)
+      addNotification('Đã xóa mục ăn trưa', 'success')
     } catch (error) {
       console.error('Error deleting entry:', error)
       alert('Có lỗi xảy ra khi xóa mục')
@@ -122,7 +194,6 @@ export default function CalendarPage() {
 
     try {
       if (editingEntry) {
-        // Update
         const res = await fetch(`/api/lunch-entries/${editingEntry.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -135,8 +206,14 @@ export default function CalendarPage() {
           const error = await res.json()
           throw new Error(error.error || 'Failed to update entry')
         }
+        const updated: LunchEntryWithMember = await res.json()
+        setEntries((prev) =>
+          sortEntries(
+            prev.map((entry) => (entry.id === updated.id ? updated : entry))
+          )
+        )
+        addNotification('Cập nhật mục ăn trưa thành công')
       } else {
-        // Create
         const res = await fetch('/api/lunch-entries', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -149,8 +226,10 @@ export default function CalendarPage() {
           const error = await res.json()
           throw new Error(error.error || 'Failed to create entry')
         }
+        const created: LunchEntryWithMember = await res.json()
+        setEntries((prev) => sortEntries([...prev, created]))
+        addNotification('Thêm mục ăn trưa thành công')
       }
-      fetchData()
       setShowSidebar(false)
       setEditingEntry(null)
       setFormData({ memberId: '', quantity: 1, price: '', note: '' })
@@ -206,6 +285,54 @@ export default function CalendarPage() {
     }
   }
 
+  const handleMarkAsPaid = async () => {
+    if (!selectedMemberForPayment || !weeklyDebt) {
+      alert('Vui lòng chọn thành viên')
+      return
+    }
+
+    const selectedDebt = weeklyDebt.debts.find(
+      (d: WeeklyDebt) => d.memberId === selectedMemberForPayment
+    )
+
+    if (!selectedDebt) {
+      alert('Không tìm thấy thông tin nợ của thành viên này')
+      return
+    }
+
+    try {
+      const res = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          memberId: selectedMemberForPayment,
+          startDate: weeklyDebt.startDate,
+          endDate: weeklyDebt.endDate,
+          amount: selectedDebt.totalAmount,
+          note: `Thanh toán dư nợ từ ${weeklyDebt.startDate} đến ${weeklyDebt.endDate}`,
+        }),
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Failed to create payment')
+      }
+
+      const payment = await res.json()
+      setPayments((prev) => [...prev, payment])
+      addNotification('Đã đánh dấu thanh toán thành công', 'success')
+      setShowPaymentModal(false)
+      setSelectedMemberForPayment('')
+      
+      // Refresh data to update paid status
+      await fetchPayments()
+      await fetchData()
+    } catch (error: any) {
+      console.error('Error marking as paid:', error)
+      alert(error.message || 'Có lỗi xảy ra khi đánh dấu thanh toán')
+    }
+  }
+
   const getEntriesForDate = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd')
     return entries.filter((entry) => entry.date === dateStr)
@@ -226,7 +353,9 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <>
+      <NotificationContainer />
+      <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -313,53 +442,61 @@ export default function CalendarPage() {
                   Thêm
                 </button>
                 <div className="space-y-2">
-                  {dayEntries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="p-2 bg-gray-50 rounded text-sm hover:bg-gray-100 transition-colors cursor-pointer group"
-                      onClick={() => handleEditEntry(entry)}
-                    >
-                      <div className="font-medium text-gray-900">
-                        {entry.member.name}
-                      </div>
-                      {entry.price && (
-                        <div className="text-xs text-gray-600 mt-1">
-                          {entry.quantity > 1 && `Số lượng: ${entry.quantity} × `}
-                          {`${entry.price.toLocaleString('vi-VN')} VND`}
-                          {entry.quantity > 1 && (
-                            <span className="font-semibold">
-                              {' '}= {(entry.quantity * entry.price).toLocaleString('vi-VN')} VND
-                            </span>
-                          )}
+                  {dayEntries.map((entry) => {
+                    const isPaid = paidEntryIds.has(entry.id)
+                    return (
+                      <div
+                        key={entry.id}
+                        className="p-2 bg-gray-50 rounded text-sm hover:bg-gray-100 transition-colors cursor-pointer group relative"
+                        onClick={() => handleEditEntry(entry)}
+                      >
+                        <div className="font-medium text-gray-900">
+                          {entry.member.name}
                         </div>
-                      )}
-                      {entry.note && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          {entry.note}
+                        {entry.price && (
+                          <div className="text-xs text-gray-600 mt-1">
+                            {entry.quantity > 1 && `Số lượng: ${entry.quantity} × `}
+                            {`${entry.price.toLocaleString('vi-VN')} VND`}
+                            {entry.quantity > 1 && (
+                              <span className="font-semibold">
+                                {' '}= {(entry.quantity * entry.price).toLocaleString('vi-VN')} VND
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {entry.note && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {entry.note}
+                          </div>
+                        )}
+                        <div className="mt-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditEntry(entry)
+                            }}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            <Edit className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteEntry(entry.id)
+                            }}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
-                      )}
-                      <div className="mt-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleEditEntry(entry)
-                          }}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Edit className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteEntry(entry.id)
-                          }}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        {isPaid && (
+                          <div className="absolute bottom-1 right-1">
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )
@@ -634,7 +771,17 @@ export default function CalendarPage() {
               </table>
             </div>
 
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex justify-between items-center">
+              <button
+                onClick={() => {
+                  setShowPaymentModal(true)
+                  setSelectedMemberForPayment('')
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Đánh Dấu Đã Thanh Toán
+              </button>
               <button
                 onClick={() => setShowDebtModal(false)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -645,7 +792,102 @@ export default function CalendarPage() {
           </div>
         </div>
       )}
-    </div>
+
+      {/* Payment Modal */}
+      {showPaymentModal && weeklyDebt && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">Đánh Dấu Đã Thanh Toán</h2>
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false)
+                  setSelectedMemberForPayment('')
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Chọn thành viên
+                </label>
+                <select
+                  value={selectedMemberForPayment}
+                  onChange={(e) => setSelectedMemberForPayment(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">Chọn thành viên</option>
+                  {weeklyDebt.debts.map((debt: WeeklyDebt) => (
+                    <option key={debt.memberId} value={debt.memberId}>
+                      {debt.memberName} - {debt.totalAmount.toLocaleString('vi-VN')} VND
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedMemberForPayment && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="text-sm text-gray-600">
+                    <p>
+                      <span className="font-semibold">Khoảng ngày:</span>{' '}
+                      {format(parseISO(weeklyDebt.startDate), 'dd/MM/yyyy')} -{' '}
+                      {format(parseISO(weeklyDebt.endDate), 'dd/MM/yyyy')}
+                    </p>
+                    {(() => {
+                      const selectedDebt = weeklyDebt.debts.find(
+                        (d: WeeklyDebt) => d.memberId === selectedMemberForPayment
+                      )
+                      return selectedDebt ? (
+                        <>
+                          <p className="mt-2">
+                            <span className="font-semibold">Số suất:</span> {selectedDebt.totalMeals}
+                          </p>
+                          <p className="mt-1">
+                            <span className="font-semibold">Tổng tiền:</span>{' '}
+                            <span className="text-green-600 font-bold">
+                              {selectedDebt.totalAmount.toLocaleString('vi-VN')} VND
+                            </span>
+                          </p>
+                        </>
+                      ) : null
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              <div className="text-xs text-gray-500">
+                <p>• Sau khi xác nhận, các mục ăn trưa trong khoảng ngày này sẽ được đánh dấu đã thanh toán</p>
+                <p>• Các card sẽ hiển thị tick xanh ở góc dưới bên phải</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false)
+                  setSelectedMemberForPayment('')
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleMarkAsPaid}
+                disabled={!selectedMemberForPayment}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                Xác Nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
+    </>
   )
 }
 

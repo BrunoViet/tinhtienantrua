@@ -20,10 +20,14 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createServerClient()
-    const { data, error } = await supabase
+    
+    // Fetch lunch entries
+    const { data: entriesData, error: entriesError } = await supabase
       .from('lunch_entries')
       .select(`
+        id,
         member_id,
+        date,
         quantity,
         price,
         member:members(id, name)
@@ -32,12 +36,50 @@ export async function GET(request: NextRequest) {
       .lte('date', endDate)
       .order('member_id')
 
-    if (error) throw error
+    if (entriesError) throw entriesError
 
-    // Calculate total meals per member
+    // Ensure entriesData is an array
+    const entries = Array.isArray(entriesData) ? entriesData : []
+
+    // Fetch payments that might cover entries in this date range
+    // Payments that overlap with the date range
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('payments')
+      .select('member_id, start_date, end_date')
+      .lte('start_date', endDate)
+      .gte('end_date', startDate)
+
+    if (paymentsError) throw paymentsError
+
+    // Create a set of paid entry dates per member
+    // An entry is paid if there's a payment covering its date for that member
+    const paidEntries = new Set<string>()
+    
+    const payments = Array.isArray(paymentsData) ? paymentsData : []
+    
+    if (payments.length > 0 && entries.length > 0) {
+      entries.forEach((entry: any) => {
+        const isPaid = payments.some(
+          (payment: any) =>
+            payment.member_id === entry.member_id &&
+            payment.start_date <= entry.date &&
+            payment.end_date >= entry.date
+        )
+        if (isPaid) {
+          paidEntries.add(entry.id)
+        }
+      })
+    }
+
+    // Calculate total meals per member, excluding paid entries
     const debtMap = new Map<string, WeeklyDebt>()
 
-    data.forEach((entry: any) => {
+    entries.forEach((entry: any) => {
+      // Skip if this entry is already paid
+      if (paidEntries.has(entry.id)) {
+        return
+      }
+
       const memberId = entry.member_id
       const memberName = entry.member.name
       const quantity = entry.quantity || 1

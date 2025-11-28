@@ -28,6 +28,17 @@ export interface WeeklyDebt {
   totalAmount: number
 }
 
+export interface Payment {
+  id: string
+  memberId: string
+  startDate: string // ISO date string (YYYY-MM-DD)
+  endDate: string // ISO date string (YYYY-MM-DD)
+  amount: number
+  note: string | null
+  created_at?: string
+  updated_at?: string
+}
+
 import { CONFIG } from './config'
 
 export const DEFAULT_MEAL_PRICE = CONFIG.DEFAULT_MEAL_PRICE

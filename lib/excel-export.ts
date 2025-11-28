@@ -18,26 +18,31 @@ export function exportMemberReportToExcel(data: ExcelReportData) {
   const worksheetData: any[] = []
 
   // Header row
-  worksheetData.push(['Ngày tháng', 'Số tiền', 'Ghi chú'])
+  worksheetData.push(['Ngày tháng', 'Số tiền', 'Trạng thái', 'Ghi chú'])
 
   // Data rows
   let totalAmount = 0
-  data.entries.forEach((entry) => {
+  data.entries.forEach((entry: any) => {
     const date = format(parseISO(entry.date), 'dd/MM/yyyy', { locale: vi })
     const price = entry.price ?? DEFAULT_MEAL_PRICE
     const amount = price * entry.quantity
     totalAmount += amount
+    
+    // Check payment status
+    const isPaid = entry.isPaid === true
+    const status = isPaid ? 'Đã trả' : 'Chưa trả'
 
     worksheetData.push([
       date,
       amount,
+      status,
       entry.note || '',
     ])
   })
 
   // Tổng cộng row
   worksheetData.push([]) // Empty row
-  worksheetData.push(['TỔNG CỘNG', totalAmount, ''])
+  worksheetData.push(['TỔNG CỘNG', totalAmount, '', ''])
 
   // Tạo worksheet từ data
   const worksheet = XLSX.utils.aoa_to_sheet(worksheetData)
@@ -46,6 +51,7 @@ export function exportMemberReportToExcel(data: ExcelReportData) {
   worksheet['!cols'] = [
     { wch: 15 }, // Ngày tháng
     { wch: 15 }, // Số tiền
+    { wch: 12 }, // Trạng thái
     { wch: 30 }, // Ghi chú
   ]
 

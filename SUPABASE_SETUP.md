@@ -26,12 +26,21 @@ Nếu bạn đã chạy schema.sql trước đó và muốn thêm tính năng gi
 2. Copy nội dung từ file `supabase/migration_add_price.sql`
 3. Paste và chạy trong SQL Editor
 
+### Bước 2.2: Chạy Migration thêm bảng Payments (Tính năng thanh toán)
+
+Để sử dụng tính năng đánh dấu đã thanh toán dư nợ:
+1. Vào **SQL Editor**
+2. Copy nội dung từ file `supabase/migration_add_payments.sql`
+3. Paste và chạy trong SQL Editor
+4. Bảng `payments` sẽ được tạo để lưu thông tin thanh toán
+
 ## Bước 3: Kiểm tra Tables đã được tạo
 
 1. Vào **Table Editor** (menu bên trái)
-2. Bạn sẽ thấy 2 bảng:
+2. Bạn sẽ thấy các bảng:
    - `members` - Quản lý thành viên
    - `lunch_entries` - Quản lý đơn đặt ăn trưa
+   - `payments` - Quản lý thanh toán dư nợ (sau khi chạy migration)
 
 ## Bước 4: Lấy API Keys
 

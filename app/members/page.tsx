@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { Member, LunchEntryWithMember } from '@/lib/types'
 import { Plus, Edit, Trash2, ArrowLeft, FileSpreadsheet } from 'lucide-react'
 import { exportMemberReportToExcel } from '@/lib/excel-export'
+import { useNotifications } from '@/hooks/useNotifications'
 
 export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([])
@@ -15,11 +16,14 @@ export default function MembersPage() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null)
   const [editingMember, setEditingMember] = useState<Member | null>(null)
   const [formData, setFormData] = useState({ name: '', isActive: true })
+  const [savingMember, setSavingMember] = useState(false)
+  const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null)
   const [exportDateRange, setExportDateRange] = useState({
     startDate: format(new Date(), 'yyyy-MM-dd'),
     endDate: format(new Date(), 'yyyy-MM-dd'),
   })
   const [exporting, setExporting] = useState(false)
+  const { addNotification, NotificationContainer } = useNotifications()
 
   useEffect(() => {
     fetchMembers()
@@ -47,33 +51,46 @@ export default function MembersPage() {
     }
   }
 
+  const sortMembers = (list: Member[]) =>
+    [...list].sort((a, b) =>
+      a.name.localeCompare(b.name, 'vi', { sensitivity: 'base' })
+    )
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSavingMember(true)
     try {
       if (editingMember) {
-        // Update
         const res = await fetch(`/api/members/${editingMember.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData),
         })
         if (!res.ok) throw new Error('Failed to update member')
+        const updated: Member = await res.json()
+        setMembers((prev) =>
+          sortMembers(prev.map((m) => (m.id === updated.id ? updated : m)))
+        )
+        addNotification('Cập nhật thành viên thành công')
       } else {
-        // Create
         const res = await fetch('/api/members', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData),
         })
         if (!res.ok) throw new Error('Failed to create member')
+        const created: Member = await res.json()
+        setMembers((prev) => sortMembers([...prev, created]))
+        addNotification('Thêm thành viên thành công')
       }
-      fetchMembers()
       setShowModal(false)
       setEditingMember(null)
       setFormData({ name: '', isActive: true })
     } catch (error) {
       console.error('Error saving member:', error)
       alert('Có lỗi xảy ra khi lưu thành viên')
+    } finally {
+      setSavingMember(false)
     }
   }
 
@@ -87,14 +104,18 @@ export default function MembersPage() {
     if (!confirm('Bạn có chắc chắn muốn xóa thành viên này?')) return
 
     try {
+      setDeletingMemberId(id)
       const res = await fetch(`/api/members/${id}`, {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error('Failed to delete member')
-      fetchMembers()
+      setMembers((prev) => prev.filter((member) => member.id !== id))
+      addNotification('Xóa thành viên thành công')
     } catch (error) {
       console.error('Error deleting member:', error)
       alert('Có lỗi xảy ra khi xóa thành viên')
+    } finally {
+      setDeletingMemberId(null)
     }
   }
 
@@ -153,7 +174,9 @@ export default function MembersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <>
+      <NotificationContainer />
+      <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -240,7 +263,8 @@ export default function MembersPage() {
                       </button>
                       <button
                         onClick={() => handleDelete(member.id)}
-                        className="text-red-600 hover:text-red-900"
+                        className="text-red-600 hover:text-red-900 disabled:opacity-50"
+                        disabled={deletingMemberId === member.id}
                       >
                         <Trash2 className="w-5 h-5 inline" />
                       </button>
@@ -304,9 +328,14 @@ export default function MembersPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  disabled={savingMember}
                 >
-                  {editingMember ? 'Cập Nhật' : 'Thêm'}
+                  {savingMember
+                    ? 'Đang lưu...'
+                    : editingMember
+                      ? 'Cập Nhật'
+                      : 'Thêm'}
                 </button>
               </div>
             </form>
@@ -369,7 +398,8 @@ export default function MembersPage() {
               </div>
 
               <div className="text-xs text-gray-500">
-                <p>• File Excel sẽ chứa: Ngày tháng, Số tiền, Ghi chú</p>
+                <p>• File Excel sẽ chứa: Ngày tháng, Số tiền, Trạng thái, Ghi chú</p>
+                <p>• Trạng thái: "Đã trả" hoặc "Chưa trả" dựa trên thanh toán đã được đánh dấu</p>
                 <p>• Tên file: {selectedMember.name}_dd-MM-yyyy_dd-MM-yyyy.xlsx</p>
               </div>
             </div>
@@ -396,7 +426,8 @@ export default function MembersPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }
 
