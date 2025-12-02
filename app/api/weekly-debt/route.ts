@@ -41,31 +41,43 @@ export async function GET(request: NextRequest) {
     // Ensure entriesData is an array
     const entries = Array.isArray(entriesData) ? entriesData : []
 
-    // Fetch payments that might cover entries in this date range
-    // Payments that overlap with the date range
+    // Fetch all payments for members that have entries in this date range
+    // We need to find the latest payment milestone (end_date) for each member
     const { data: paymentsData, error: paymentsError } = await supabase
       .from('payments')
-      .select('member_id, start_date, end_date')
-      .lte('start_date', endDate)
-      .gte('end_date', startDate)
+      .select('member_id, end_date')
+      .order('end_date', { ascending: false })
 
     if (paymentsError) throw paymentsError
 
-    // Create a set of paid entry dates per member
-    // An entry is paid if there's a payment covering its date for that member
-    const paidEntries = new Set<string>()
+    // Create a map of latest payment milestone (end_date) per member
+    // This represents the most recent date that has been paid for each member
+    const latestPaymentMilestone = new Map<string, string>()
     
     const payments = Array.isArray(paymentsData) ? paymentsData : []
     
-    if (payments.length > 0 && entries.length > 0) {
+    // Find the latest end_date for each member
+    payments.forEach((payment: any) => {
+      const memberId = payment.member_id
+      const endDate = payment.end_date
+      
+      if (!latestPaymentMilestone.has(memberId) || 
+          endDate > latestPaymentMilestone.get(memberId)!) {
+        latestPaymentMilestone.set(memberId, endDate)
+      }
+    })
+
+    // Create a set of paid entry IDs
+    // An entry is paid if its date <= latest payment milestone for that member
+    const paidEntries = new Set<string>()
+    
+    if (entries.length > 0) {
       entries.forEach((entry: any) => {
-        const isPaid = payments.some(
-          (payment: any) =>
-            payment.member_id === entry.member_id &&
-            payment.start_date <= entry.date &&
-            payment.end_date >= entry.date
-        )
-        if (isPaid) {
+        const memberId = entry.member_id
+        const latestPaidDate = latestPaymentMilestone.get(memberId)
+        
+        // Entry is paid if there's a payment milestone and entry date <= milestone
+        if (latestPaidDate && entry.date <= latestPaidDate) {
           paidEntries.add(entry.id)
         }
       })

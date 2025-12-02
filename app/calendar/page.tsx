@@ -132,18 +132,29 @@ export default function CalendarPage() {
       return
     }
 
+    // Create a map of latest payment milestone (end_date) per member
+    // This represents the most recent date that has been paid for each member
+    const latestPaymentMilestone = new Map<string, string>()
+    
+    // Find the latest end_date for each member
+    payments.forEach((payment) => {
+      const memberId = payment.memberId
+      const endDate = payment.endDate
+      
+      if (!latestPaymentMilestone.has(memberId) || 
+          endDate > latestPaymentMilestone.get(memberId)!) {
+        latestPaymentMilestone.set(memberId, endDate)
+      }
+    })
+
     const paidIds = new Set<string>()
     
     for (const entry of entries) {
-      // Check if there's a payment that covers this entry's date
-      const isPaid = payments.some(
-        (payment) =>
-          payment.memberId === entry.memberId &&
-          payment.startDate <= entry.date &&
-          payment.endDate >= entry.date
-      )
+      const memberId = entry.memberId
+      const latestPaidDate = latestPaymentMilestone.get(memberId)
       
-      if (isPaid) {
+      // Entry is paid if there's a payment milestone and entry date <= milestone
+      if (latestPaidDate && entry.date <= latestPaidDate) {
         paidIds.add(entry.id)
       }
     }

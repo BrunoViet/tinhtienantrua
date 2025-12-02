@@ -29,18 +29,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ isPaid: false })
     }
 
-    // Check if there's a payment that covers this entry's date
+    // Find the latest payment milestone (end_date) for this member
+    // An entry is paid if its date <= latest payment milestone
     const { data: payments, error: paymentsError } = await supabase
       .from('payments')
-      .select('id')
+      .select('end_date')
       .eq('member_id', entry.member_id)
-      .lte('start_date', entry.date)
-      .gte('end_date', entry.date)
+      .order('end_date', { ascending: false })
 
     if (paymentsError) throw paymentsError
 
+    // Get the latest end_date (payment milestone)
+    const latestPaidDate = payments && payments.length > 0 
+      ? payments[0].end_date 
+      : null
+
+    // Entry is paid if there's a payment milestone and entry date <= milestone
+    const isPaid = latestPaidDate && entry.date <= latestPaidDate
+
     return NextResponse.json({
-      isPaid: payments && payments.length > 0,
+      isPaid: isPaid || false,
     })
   } catch (error: any) {
     console.error('Error checking payment status:', error)

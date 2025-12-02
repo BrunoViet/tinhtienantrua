@@ -40,25 +40,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json([])
     }
 
-    // Fetch payments that might cover entries in this date range
+    // Fetch all payments for this member to find the latest payment milestone
     const { data: paymentsData, error: paymentsError } = await supabase
       .from('payments')
-      .select('start_date, end_date')
+      .select('end_date')
       .eq('member_id', memberId)
-      .lte('start_date', endDate)
-      .gte('end_date', startDate)
+      .order('end_date', { ascending: false })
 
     if (paymentsError) throw paymentsError
 
     const payments = Array.isArray(paymentsData) ? paymentsData : []
+    
+    // Get the latest payment milestone (end_date) for this member
+    const latestPaidDate = payments.length > 0 ? payments[0].end_date : null
 
     const entries: (LunchEntryWithMember & { isPaid?: boolean })[] = data.map((entry: any) => {
-      // Check if this entry is paid
-      const isPaid = payments.some(
-        (payment: any) =>
-          payment.start_date <= entry.date &&
-          payment.end_date >= entry.date
-      )
+      // Entry is paid if there's a payment milestone and entry date <= milestone
+      const isPaid = latestPaidDate && entry.date <= latestPaidDate
 
       return {
         id: entry.id,
