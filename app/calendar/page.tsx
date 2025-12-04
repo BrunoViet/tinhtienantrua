@@ -33,6 +33,7 @@ export default function CalendarPage() {
   const [paidEntryIds, setPaidEntryIds] = useState<Set<string>>(new Set())
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedMemberForPayment, setSelectedMemberForPayment] = useState<string>('')
+  const [paymentEndDate, setPaymentEndDate] = useState<string>('')
   const { addNotification, NotificationContainer } = useNotifications()
 
   const weekStart = startOfWeek(currentWeek, { weekStartsOn: 1 }) // Monday
@@ -302,6 +303,16 @@ export default function CalendarPage() {
       return
     }
 
+    if (!paymentEndDate) {
+      alert('Vui lòng chọn ngày thanh toán')
+      return
+    }
+
+    if (paymentEndDate < weeklyDebt.startDate) {
+      alert('Ngày thanh toán không thể nhỏ hơn ngày bắt đầu')
+      return
+    }
+
     const selectedDebt = weeklyDebt.debts.find(
       (d: WeeklyDebt) => d.memberId === selectedMemberForPayment
     )
@@ -318,9 +329,9 @@ export default function CalendarPage() {
         body: JSON.stringify({
           memberId: selectedMemberForPayment,
           startDate: weeklyDebt.startDate,
-          endDate: weeklyDebt.endDate,
+          endDate: paymentEndDate,
           amount: selectedDebt.totalAmount,
-          note: `Thanh toán dư nợ từ ${weeklyDebt.startDate} đến ${weeklyDebt.endDate}`,
+          note: `Thanh toán dư nợ từ ${weeklyDebt.startDate} đến ${paymentEndDate}`,
         }),
       })
 
@@ -334,6 +345,7 @@ export default function CalendarPage() {
       addNotification('Đã đánh dấu thanh toán thành công', 'success')
       setShowPaymentModal(false)
       setSelectedMemberForPayment('')
+      setPaymentEndDate('')
       
       // Refresh data to update paid status
       await fetchPayments()
@@ -787,6 +799,9 @@ export default function CalendarPage() {
                 onClick={() => {
                   setShowPaymentModal(true)
                   setSelectedMemberForPayment('')
+                  if (weeklyDebt) {
+                    setPaymentEndDate(weeklyDebt.endDate)
+                  }
                 }}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
               >
@@ -814,6 +829,7 @@ export default function CalendarPage() {
                 onClick={() => {
                   setShowPaymentModal(false)
                   setSelectedMemberForPayment('')
+                  setPaymentEndDate('')
                 }}
                 className="text-gray-500 hover:text-gray-700"
               >
@@ -841,33 +857,51 @@ export default function CalendarPage() {
               </div>
 
               {selectedMemberForPayment && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="text-sm text-gray-600">
-                    <p>
-                      <span className="font-semibold">Khoảng ngày:</span>{' '}
-                      {format(parseISO(weeklyDebt.startDate), 'dd/MM/yyyy')} -{' '}
-                      {format(parseISO(weeklyDebt.endDate), 'dd/MM/yyyy')}
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Ngày thanh toán gần nhất
+                    </label>
+                    <input
+                      type="date"
+                      value={paymentEndDate}
+                      onChange={(e) => setPaymentEndDate(e.target.value)}
+                      min={weeklyDebt.startDate}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Ngày này sẽ được cập nhật vào DB như ngày thanh toán gần nhất của member
                     </p>
-                    {(() => {
-                      const selectedDebt = weeklyDebt.debts.find(
-                        (d: WeeklyDebt) => d.memberId === selectedMemberForPayment
-                      )
-                      return selectedDebt ? (
-                        <>
-                          <p className="mt-2">
-                            <span className="font-semibold">Số suất:</span> {selectedDebt.totalMeals}
-                          </p>
-                          <p className="mt-1">
-                            <span className="font-semibold">Tổng tiền:</span>{' '}
-                            <span className="text-green-600 font-bold">
-                              {selectedDebt.totalAmount.toLocaleString('vi-VN')} VND
-                            </span>
-                          </p>
-                        </>
-                      ) : null
-                    })()}
                   </div>
-                </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="text-sm text-gray-600">
+                      <p>
+                        <span className="font-semibold">Khoảng ngày:</span>{' '}
+                        {format(parseISO(weeklyDebt.startDate), 'dd/MM/yyyy')} -{' '}
+                        {format(parseISO(weeklyDebt.endDate), 'dd/MM/yyyy')}
+                      </p>
+                      {(() => {
+                        const selectedDebt = weeklyDebt.debts.find(
+                          (d: WeeklyDebt) => d.memberId === selectedMemberForPayment
+                        )
+                        return selectedDebt ? (
+                          <>
+                            <p className="mt-2">
+                              <span className="font-semibold">Số suất:</span> {selectedDebt.totalMeals}
+                            </p>
+                            <p className="mt-1">
+                              <span className="font-semibold">Tổng tiền:</span>{' '}
+                              <span className="text-green-600 font-bold">
+                                {selectedDebt.totalAmount.toLocaleString('vi-VN')} VND
+                              </span>
+                            </p>
+                          </>
+                        ) : null
+                      })()}
+                    </div>
+                  </div>
+                </>
               )}
 
               <div className="text-xs text-gray-500">
@@ -881,6 +915,7 @@ export default function CalendarPage() {
                 onClick={() => {
                   setShowPaymentModal(false)
                   setSelectedMemberForPayment('')
+                  setPaymentEndDate('')
                 }}
                 className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
@@ -888,7 +923,7 @@ export default function CalendarPage() {
               </button>
               <button
                 onClick={handleMarkAsPaid}
-                disabled={!selectedMemberForPayment}
+                disabled={!selectedMemberForPayment || !paymentEndDate}
                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
                 Xác Nhận
